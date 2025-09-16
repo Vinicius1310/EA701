@@ -1,0 +1,40 @@
+from machine import Pin, ADC, I2C
+from ssd1306 import SSD1306_I2C
+import time
+
+# ===================== Joystick =======================
+adc_y = ADC(Pin(26))   # eixo Y
+adc_x = ADC(Pin(27))   # eixo X
+
+# ===================== OLED I2C1 (BitDogLab v7) =======
+i2c = I2C(1, scl=Pin(3), sda=Pin(2), freq=400000)
+oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
+
+# ===================== Funções ========================
+def read_adc_12bit(adc):
+    """Converte leitura 16 bits (0–65535) em 12 bits (0–4095)."""
+    return adc.read_u16() >> 4
+
+def adc_to_voltage(adc_value):
+    """Converte valor digital (0–4095) em tensão real (0–3.3 V)."""
+    return (adc_value / 4095) * 3.3
+
+# ===================== Loop principal =================
+while True:
+    # Leitura dos valores brutos (12 bits)
+    raw_x = read_adc_12bit(adc_x)
+    raw_y = read_adc_12bit(adc_y)
+
+    # Conversão para tensão
+    volt_x = adc_to_voltage(raw_x)
+    volt_y = adc_to_voltage(raw_y)
+
+    # Mostra no OLED
+    oled.fill(0)
+    oled.text("Joystick ADC:", 0, 0)
+    oled.text("X: {:4d} -> {:.2f}V".format(raw_x, volt_x), 0, 20)
+    oled.text("Y: {:4d} -> {:.2f}V".format(raw_y, volt_y), 0, 40)
+    oled.show()
+
+    time.sleep(0.2)
+
