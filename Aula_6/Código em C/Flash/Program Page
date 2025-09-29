@@ -1,0 +1,81 @@
+#include "pico/stdlib.h"
+#include "hardware/i2c.h"
+#include "hardware/flash.h"
+#include "hardware/sync.h"
+#include "ssd1306/ssd1306.h"
+#include <stdio.h>
+#include <string.h>
+
+#define FLASH_TARGET_OFFSET (256 * 1024)
+#define PAGE_SIZE FLASH_PAGE_SIZE
+
+uint8_t write_buffer[PAGE_SIZE];
+
+void measure_flash_program_page() {
+    stdio_init_all();
+    
+    // Inicializa I2C1
+    i2c_init(i2c1, 400 * 1000);
+    gpio_set_function(2, GPIO_FUNC_I2C);
+    gpio_set_function(3, GPIO_FUNC_I2C);
+    gpio_pull_up(2);
+    gpio_pull_up(3);
+
+    // Inicializa display
+    ssd1306_t disp;
+    ssd1306_init(&disp, 128, 64, false, 0x3C, i2c1);
+    
+    ssd1306_clear(&disp);
+    ssd1306_draw_string(&disp, 0, 0, 1, "Flash PROGRAM Test");
+    ssd1306_draw_string(&disp, 0, 16, 1, "Measuring...");
+    ssd1306_display(&disp);
+    
+    sleep_ms(2000);
+    
+    printf("=== Flash PROGRAM Test (1 page - 256B) ===\n");
+    
+    // Prepara buffer
+    for (int i = 0; i < PAGE_SIZE; i++) 
+        write_buffer[i] = (i * 7) & 0xFF;
+    
+    // Pré-apagar setor
+    uint32_t ints = save_and_disable_interrupts();
+    flash_range_erase(FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE);
+    restore_interrupts(ints);
+    
+    // Aquecimento
+    ints = save_and_disable_interrupts();
+    flash_range_program(FLASH_TARGET_OFFSET, write_buffer, PAGE_SIZE);
+    restore_interrupts(ints);
+    
+    // Medição principal
+    absolute_time_t t0 = get_absolute_time();
+    ints = save_and_disable_interrupts();
+    flash_range_program(FLASH_TARGET_OFFSET + PAGE_SIZE, write_buffer, PAGE_SIZE);
+    restore_interrupts(ints);
+    absolute_time_t t1 = get_absolute_time();
+    
+    double prog_ms = absolute_time_diff_us(t0, t1) / 1000.0;
+    double speed_kbs = 0.256 / (prog_ms / 1000.0);
+    
+    printf("Flash PROGRAM (256B): %.3f ms\n", prog_ms);
+    printf("Speed: %.2f KB/s\n", speed_kbs);
+    
+    // Exibe no OLED
+    char msg1[32], msg2[32], msg3[32];
+    snprintf(msg1, sizeof(msg1), "PROG 256B: %.2f ms", prog_ms);
+    snprintf(msg2, sizeof(msg2), "Speed: %.0f KB/s", speed_kbs);
+    snprintf(msg3, sizeof(msg3), "Page: %d B", PAGE_SIZE);
+    
+    ssd1306_clear(&disp);
+    ssd1306_draw_string(&disp, 0, 0, 1, "Flash PROGRAM Test");
+    ssd1306_draw_string(&disp, 0, 16, 1, msg1);
+    ssd1306_draw_string(&disp, 0, 32, 1, msg2);
+    ssd1306_draw_string(&disp, 0, 48, 1, msg3);
+    ssd1306_display(&disp);
+}
+
+int main() {
+    measure_flash_program_page();
+    while(1) tight_loop_contents();
+}
