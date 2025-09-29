@@ -1,0 +1,93 @@
+#include "pico/stdlib.h"
+#include "hardware/i2c.h"
+#include "hardware/flash.h"
+#include "hardware/sync.h"
+#include "ssd1306/ssd1306.h"
+#include <stdio.h>
+#include <string.h>
+
+#define FLASH_TARGET_OFFSET (256 * 1024)
+#define BLOCK_SIZE (32 * 1024)
+
+uint8_t big_buffer[BLOCK_SIZE];
+
+void measure_flash_program_block() {
+    stdio_init_all();
+    
+    // Inicializa I2C1
+    i2c_init(i2c1, 400 * 1000);
+    gpio_set_function(2, GPIO_FUNC_I2C);
+    gpio_set_function(3, GPIO_FUNC_I2C);
+    gpio_pull_up(2);
+    gpio_pull_up(3);
+
+    // Inicializa display
+    ssd1306_t disp;
+    ssd1306_init(&disp, 128, 64, false, 0x3C, i2c1);
+    
+    ssd1306_clear(&disp);
+    ssd1306_draw_string(&disp, 0, 0, 1, "Flash BLOCK Test");
+    ssd1306_draw_string(&disp, 0, 16, 1, "Measuring...");
+    ssd1306_display(&disp);
+    
+    sleep_ms(2000);
+    
+    printf("=== Flash PROGRAM Test (Block - 32KB) ===\n");
+    
+    // Preenche buffer grande
+    for (int i = 0; i < BLOCK_SIZE; i++) 
+        big_buffer[i] = (i * 13) & 0xFF;
+    
+    // Pré-apagar setores necessários
+    uint32_t ints = save_and_disable_interrupts();
+    flash_range_erase(FLASH_TARGET_OFFSET, BLOCK_SIZE);
+    restore_interrupts(ints);
+    
+    // Aquecimento
+    ints = save_and_disable_interrupts();
+    for (int off = 0; off < BLOCK_SIZE; off += FLASH_PAGE_SIZE) {
+        flash_range_program(FLASH_TARGET_OFFSET + off, big_buffer + off, FLASH_PAGE_SIZE);
+    }
+    restore_interrupts(ints);
+    
+    // Apagar novamente para medição
+    ints = save_and_disable_interrupts();
+    flash_range_erase(FLASH_TARGET_OFFSET + BLOCK_SIZE, BLOCK_SIZE);
+    restore_interrupts(ints);
+    
+    // Medição principal
+    absolute_time_t t0 = get_absolute_time();
+    ints = save_and_disable_interrupts();
+    for (int off = 0; off < BLOCK_SIZE; off += FLASH_PAGE_SIZE) {
+        flash_range_program(FLASH_TARGET_OFFSET + BLOCK_SIZE + off, 
+                           big_buffer + off, FLASH_PAGE_SIZE);
+    }
+    restore_interrupts(ints);
+    absolute_time_t t1 = get_absolute_time();
+    
+    double total_ms = absolute_time_diff_us(t0, t1) / 1000.0;
+    double speed_kbs = 32.0 / (total_ms / 1000.0);
+    double avg_page_ms = total_ms / (BLOCK_SIZE / FLASH_PAGE_SIZE);
+    
+    printf("Flash PROGRAM (32KB): %.3f ms\n", total_ms);
+    printf("Speed: %.2f KB/s\n", speed_kbs);
+    printf("Average per page (256B): %.3f ms\n", avg_page_ms);
+    
+    // Exibe no OLED
+    char msg1[32], msg2[32], msg3[32];
+    snprintf(msg1, sizeof(msg1), "PROG 32KB: %.1f ms", total_ms);
+    snprintf(msg2, sizeof(msg2), "Speed: %.0f KB/s", speed_kbs);
+    snprintf(msg3, sizeof(msg3), "Page avg: %.2f ms", avg_page_ms);
+    
+    ssd1306_clear(&disp);
+    ssd1306_draw_string(&disp, 0, 0, 1, "Flash BLOCK Test");
+    ssd1306_draw_string(&disp, 0, 16, 1, msg1);
+    ssd1306_draw_string(&disp, 0, 32, 1, msg2);
+    ssd1306_draw_string(&disp, 0, 48, 1, msg3);
+    ssd1306_display(&disp);
+}
+
+int main() {
+    measure_flash_program_block();
+    while(1) tight_loop_contents();
+}
