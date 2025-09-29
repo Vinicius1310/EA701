@@ -1,0 +1,46 @@
+#include "pico/stdlib.h"
+#include "hardware/i2c.h"
+#include "ssd1306/ssd1306.h"
+#include <stdio.h>
+
+int main() {
+    stdio_init_all();
+
+    // Inicializa I2C1: SDA=GPIO2, SCL=GPIO3 (BitDogLab)
+    i2c_init(i2c1, 400 * 1000);
+    gpio_set_function(2, GPIO_FUNC_I2C);
+    gpio_set_function(3, GPIO_FUNC_I2C);
+    gpio_pull_up(2);
+    gpio_pull_up(3);
+
+    // Inicializa display (SSD1306 128x64, endereço 0x3C)
+    ssd1306_t disp;
+    ssd1306_init(&disp, 128, 64, false, 0x3C, i2c1);
+
+    // Teste de escrita na RAM
+    const int N = 10000;
+    static volatile uint8_t buf[10000];  // VOLATILE aqui
+
+    absolute_time_t t0 = get_absolute_time();
+    for (int i = 0; i < N; i++) buf[i] = i & 0xFF;
+    absolute_time_t t1 = get_absolute_time();
+
+    int64_t us = absolute_time_diff_us(t0, t1);
+    float ms = us / 1000.0f;
+
+    // Exibe no terminal serial (debug)
+    printf("RAM write (%d bytes): %.3f ms\n", N, ms);
+
+    // Escreve no display OLED
+    char msg[32];
+    snprintf(msg, sizeof(msg), "%dB: %.2f ms", N, ms);
+
+    ssd1306_clear(&disp);
+    ssd1306_draw_string(&disp, 0, 0, 1, "RAM Speed Test");
+    ssd1306_draw_string(&disp, 0, 16, 1, msg);
+    ssd1306_display(&disp);
+
+    while (1) {
+        tight_loop_contents();
+    }
+}
